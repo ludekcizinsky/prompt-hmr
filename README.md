@@ -46,6 +46,11 @@ bash scripts/fetch_smplx.sh
 bash scripts/fetch_data.sh
 ```
 
+**BEDLAM2 checkpoints**
+
+We released the checkpoints of PromptHMR-video trained on BEDLAM1 and BEDLAM2 datasets. [BEDLAM2](https://bedlam2.is.tuebingen.mpg.de/) is a new large-scale synthetic video dataset of animated bodies in simulated clothing, designed to train and test algorithms on the task of 3D human pose and shape estimation. With more than 8 million images, it is a significant expansion of the popular BEDLAM dataset that increases pose and body shape variation, and adds shoes and strand-based hair. Most importantly, it introduces a wide range of realistic cameras and camera motions.
+
+Please download the checkpoints from [Google Drive](https://drive.google.com/drive/folders/1V2q1lWTba5hOcT-bEDTv6Cxx3fbltJyg?usp=sharing). Copy the checkpoints to `./data/pretrain/phmr_vid` and modify the checkpoint path in this [line](https://github.com/yufu-wang/PromptHMR/blob/main/pipeline/phmr_vid.py#L23) to the checkpoints you want to use.
 
 ## Demos
 **For monocular reconstruction**, the demo saves results in a new folder named after the input image. It also uses Viser to visualize the results—open the output link in a browser to view them in 3D. If the browser cannot connect, please troubleshoot Viser (e.g., port forwarding is required if you're running on a remote server).
