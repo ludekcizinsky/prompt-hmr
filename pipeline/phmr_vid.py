@@ -121,7 +121,10 @@ class PromptHMR_Video():
                     torch.zeros(seqlen, 9).cuda(),
                 ], dim=-1)
             rotmat = axis_angle_to_matrix(smplx_pose_aa.reshape(-1, 3)).reshape(-1, 25, 3, 3)
-            hand_pose_rotmat = torch.zeros(rotmat.shape[0], 30, 3, 3).to(rotmat)
+            # Use identity rotations for hands (zeros produces invalid rotation matrices).
+            hand_pose_rotmat = torch.eye(3, device=rotmat.device, dtype=rotmat.dtype)[None, None].repeat(
+                rotmat.shape[0], 30, 1, 1
+            )
             rotmat = torch.cat([rotmat, hand_pose_rotmat], dim=1)
 
             hps_results = {
