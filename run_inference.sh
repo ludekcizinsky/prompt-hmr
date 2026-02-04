@@ -4,7 +4,6 @@ source /home/cizinsky/miniconda3/etc/profile.d/conda.sh
 conda activate phmr_pt2.4 
 module load gcc ffmpeg
 
-
 scene_dir_path=$1
 
 repo_path=/home/cizinsky/master-thesis
