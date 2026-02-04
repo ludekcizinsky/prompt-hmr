@@ -7,6 +7,7 @@ import torch
 from omegaconf import OmegaConf
 
 from smplx import SMPLX
+from data_config import BODY_MODELS_ROOT, PRETRAIN_ROOT
 from pipeline.detector import segment
 from pipeline.detector.vitpose_estimator import load_vit_model, estimate_kp2ds_from_bbox_vitpose
 from pipeline.kp_utils import convert_kps
@@ -27,7 +28,7 @@ class Pipeline:
         self.cfg = OmegaConf.load("pipeline/config.yaml")
         self.cfg.static_cam = static_cam
         
-        checkpoint_dir = 'data/pretrain'
+        checkpoint_dir = PRETRAIN_ROOT
         self.data_dict = {
             'droid': os.path.join(checkpoint_dir, 'droid.pth'), 
             'sam': os.path.join(checkpoint_dir, "sam_vit_h_4b8939.pth"), 
@@ -37,7 +38,7 @@ class Pipeline:
         }
 
         self.smplx = SMPLX(
-            f'data/body_models/smplx/SMPLX_NEUTRAL.npz', 
+            os.path.join(BODY_MODELS_ROOT, 'smplx', 'SMPLX_NEUTRAL.npz'),
             use_pca=False, 
             flat_hand_mean=True, 
             num_betas=10
@@ -91,7 +92,7 @@ class Pipeline:
 
 
     def estimate_2d_keypoints(self,):
-        model = load_vit_model(model_path='data/pretrain/vitpose-h-coco_25.pth')
+        model = load_vit_model(model_path=self.data_dict['vitpose'])
         for k, v in self.results['people'].items():
             kpts_2d = estimate_kp2ds_from_bbox_vitpose(model, self.images, v['bboxes'], k, v['frames'])
             kpts_2d = convert_kps(kpts_2d, 'vitpose25', 'openpose')
@@ -395,7 +396,7 @@ class Pipeline:
             focal_length=self.results['camera_world']['img_focal'],
             principal_point=self.results['camera_world']['img_center'],
             frame_rate=float(self.cfg.fps),
-            smplx_path='data/body_models/smplx/SMPLX_neutral_array_f32_slim.npz',
+            smplx_path=os.path.join(BODY_MODELS_ROOT, 'smplx', 'SMPLX_neutral_array_f32_slim.npz'),
         )
 
         print("Usage:")

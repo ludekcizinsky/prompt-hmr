@@ -9,11 +9,13 @@ from torch import nn
 from torch.nn import functional as F
 
 from typing import List, Tuple, Type
+from os.path import join
 
 from .common import LayerNorm2d
 from prompt_hmr.smpl_family import SMPLX
+from data_config import BODY_MODELS_ROOT
 
-SMPLX_MODEL_DIR = 'data/body_models/smplx/models/smplx'
+SMPLX_MODEL_DIR = join(BODY_MODELS_ROOT, "smplx", "models", "smplx")
 
 class SMPLDecoder(nn.Module):
     def __init__(

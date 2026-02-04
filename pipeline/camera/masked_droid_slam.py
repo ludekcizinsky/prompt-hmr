@@ -27,6 +27,7 @@ from pipeline.yvanyin_metric3d_main.hubconf import (
     metric3d_vit_small, 
     metric3d_vit_giant2,
 )
+from data_config import PRETRAIN_ROOT
 
 # torch.multiprocessing.set_start_method('spawn')
 def run_metric_slam(
@@ -235,7 +236,7 @@ def run_slam(images, masks=None, calib=None, depths=None, opt_intr=False, stride
     if opt_intr:
         print("Optimizing intrinsics...")
     
-    slam_args.weights = 'data/pretrain/droidcalib.pth'
+    slam_args.weights = f'{PRETRAIN_ROOT}/droidcalib.pth'
     slam_args.opt_intr = opt_intr
     for (t, image, intrinsics, depth, size_factor) in image_stream(images, calib, depths=depths, stride=stride, depth_keyframes=depth_keyframes):
 

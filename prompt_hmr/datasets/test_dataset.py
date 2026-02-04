@@ -6,7 +6,7 @@ from torch.utils.data import Dataset
 from torchvision.transforms import Normalize, ToTensor, Compose
 from PIL import Image, ImageOps
 
-from data_config import DATASET_FILES, DATASET_FOLDERS, SMPL_PATH
+from data_config import BODY_MODELS_ROOT, DATASET_FILES, DATASET_FOLDERS, SMPL_PATH
 from prompt_hmr.smpl_family import SMPL
 from prompt_hmr.utils.rotation_utils import axis_angle_to_matrix
 
@@ -54,7 +54,7 @@ class TestDataset(Dataset):
 
         # Joint regressor for evaluation purposes
         if dataset == '3DPW_TEST':
-            self.j_regressor = tt(np.load('data/body_models/J_regressor_h36m.npy'))
+            self.j_regressor = tt(np.load(os.path.join(BODY_MODELS_ROOT, 'J_regressor_h36m.npy')))
         else:
             self.j_regressor = self.smpls['neutral'].J_regressor
                     

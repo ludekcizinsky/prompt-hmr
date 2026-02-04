@@ -7,7 +7,7 @@ from tqdm import tqdm
 import pickle as pkl
 from torch.amp import autocast
 
-from data_config import SMPL_PATH, SMPLX_PATH, SMPLX2SMPL
+from data_config import BODY_MODELS_ROOT, SMPL_PATH, SMPLX_PATH, SMPLX2SMPL
 from prompt_hmr.smpl_family import SMPLX, SMPL
 from prompt_hmr.datasets.emdb_dataset import EMDBDataset
 from prompt_hmr.datasets.rich_dataset import RICHDataset
@@ -28,7 +28,7 @@ class Evaluator():
 
 		# Joint regressors
 		h36m_to_14 = [6, 5, 4, 1, 2, 3, 16, 15, 14, 11, 12, 13, 8, 10, 0, 7, 9][:14]
-		self.j_h36m = to_tensor(np.load('data/body_models/J_regressor_h36m.npy'))
+		self.j_h36m = to_tensor(np.load(os.path.join(BODY_MODELS_ROOT, 'J_regressor_h36m.npy')))
 		self.j_lsp14 = self.j_h36m[h36m_to_14]
 		self.j_smpl = self.smpl.J_regressor[:24]
 		self.j_smplx = self.smplx.J_regressor[:24]

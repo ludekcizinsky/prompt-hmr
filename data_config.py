@@ -3,11 +3,20 @@ This file contains definitions of useful data stuctures and the paths
 for the datasets and data files necessary to run the code.
 Things you need to change: *_ROOT that indicate the path to each dataset
 """
+import os
 from os.path import join
 
 # Please change ROOT to the root directory of your datasets 
 ROOT = './'
-ANN_ROOT = 'data/annotations'
+
+# Root for downloaded checkpoints, annotations, and examples
+DATA_ROOT = os.environ.get("PROMPTHMR_DATA_ROOT", "/scratch/izar/cizinsky/pretrained/prompthmr")
+PRETRAIN_ROOT = join(DATA_ROOT, "pretrain")
+ANN_ROOT = join(DATA_ROOT, "annotations")
+EXAMPLES_ROOT = join(DATA_ROOT, "examples")
+
+# Body models can live elsewhere (e.g., home directory)
+BODY_MODELS_ROOT = os.environ.get("PROMPTHMR_BODY_MODELS_ROOT", "/home/cizinsky/body_models")
 
 # Path to converted annotations
 DATASET_FILES = {'EMDB': f'{ANN_ROOT}/emdb_mc_labels.npz',
@@ -29,6 +38,6 @@ DATASET_FOLDERS = {'EMDB': f'{ROOT}/EMDB',
 				  }
 
 # Path to SMPL/SMPLX data
-SMPLX_PATH = 'data/body_models/smplx'
-SMPL_PATH = 'data/body_models/smpl'
-SMPLX2SMPL = 'data/body_models/smplx2smpl.pkl'
+SMPLX_PATH = join(BODY_MODELS_ROOT, "smplx")
+SMPL_PATH = join(BODY_MODELS_ROOT, "smpl")
+SMPLX2SMPL = join(BODY_MODELS_ROOT, "smplx2smpl.pkl")

@@ -11,6 +11,7 @@ from torchvision.transforms import Normalize, ToTensor, Compose
 
 import sys
 sys.path.insert(0, 'pipeline/gvhmr')
+from data_config import BODY_MODELS_ROOT, PRETRAIN_ROOT
 from prompt_hmr import load_model as load_phmr
 from pipeline.gvhmr.hmr4d.model.gvhmr.gvhmr_pl_demo import DemoPL
 from pipeline.gvhmr.hmr4d.utils.geo_transform import compute_cam_angvel
@@ -19,11 +20,11 @@ from prompt_hmr.utils.rotation_conversions import axis_angle_to_matrix
 
 
 def load_video_head():
-    phmr_vid_cfg =  OmegaConf.load('data/pretrain/phmr_vid/prhmr_release_002.yaml')
-    phmr_vid_ckpt = 'data/pretrain/phmr_vid/prhmr_release_002.ckpt'
+    phmr_vid_cfg = OmegaConf.load(f'{PRETRAIN_ROOT}/phmr_vid/prhmr_release_002.yaml')
+    phmr_vid_ckpt = f'{PRETRAIN_ROOT}/phmr_vid/phmr_b2.ckpt'
     vid_head = DemoPL(
         pipeline=phmr_vid_cfg.model.pipeline,
-        smplx_path='data/body_models/smplx/SMPLX_NEUTRAL.npz',
+        smplx_path=f'{BODY_MODELS_ROOT}/smplx/SMPLX_NEUTRAL.npz',
     )
     vid_head = vid_head.eval().cuda()
     vid_head.load_pretrained_model(phmr_vid_ckpt)
@@ -33,7 +34,7 @@ def load_video_head():
 class PromptHMR_Video():
     def __init__(self,):
         super().__init__()
-        self.model = load_phmr('data/pretrain/phmr/checkpoint.ckpt')
+        self.model = load_phmr(f'{PRETRAIN_ROOT}/phmr/checkpoint.ckpt')
         self.vid_head = load_video_head()
     
     @torch.no_grad()

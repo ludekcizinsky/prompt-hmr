@@ -10,7 +10,7 @@ from glob import glob
 from torch.amp import autocast
 
 from ultralytics import YOLO
-from data_config import SMPL_PATH, SMPLX_PATH
+from data_config import EXAMPLES_ROOT, PRETRAIN_ROOT, SMPL_PATH, SMPLX_PATH
 from prompt_hmr import load_model_from_folder
 from prompt_hmr.smpl_family import SMPLX, SMPL
 from prompt_hmr.utils.visualizer import draw_boxes, save_ply
@@ -23,13 +23,13 @@ from pipeline.camcalib.model import CameraRegressorNetwork
 from segment_anything import SamPredictor, sam_model_registry
 
 
-def main(image='data/examples/example_1.jpg', gravity_align=False, detect_conf=0.3, render_overlap=False):
+def main(image=os.path.join(EXAMPLES_ROOT, 'example_1.jpg'), gravity_align=False, detect_conf=0.3, render_overlap=False):
     savedir = os.path.basename(image)
     os.makedirs(savedir, exist_ok=True)
 
     smplx = SMPLX(SMPLX_PATH).cuda()
-    yolo = YOLO("data/pretrain/yolov8x.pt")
-    phmr = load_model_from_folder('data/pretrain/phmr')
+    yolo = YOLO(os.path.join(PRETRAIN_ROOT, "yolov8x.pt"))
+    phmr = load_model_from_folder(os.path.join(PRETRAIN_ROOT, 'phmr'))
 
     # Prompt HMR
     img = cv2.imread(image)[:,:,::-1]
@@ -63,7 +63,7 @@ def main(image='data/examples/example_1.jpg', gravity_align=False, detect_conf=0
     if gravity_align:
         # Use SPEC to estimate gravity direction
         spec = CameraRegressorNetwork()
-        spec = spec.load_ckpt('data/pretrain/camcalib_sa_biased_l2.ckpt').to('cuda')
+        spec = spec.load_ckpt(os.path.join(PRETRAIN_ROOT, 'camcalib_sa_biased_l2.ckpt')).to('cuda')
         with torch.no_grad():
             preds = spec(img, transform_data=True)
             pred_vfov, pred_pitch, pred_roll = preds

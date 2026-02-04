@@ -2,15 +2,17 @@ import torch
 import pytorch_lightning as pl
 from typing import Any, Dict, List, Tuple
 import pickle as pkl
+from os.path import join
 from torch.amp import autocast
 
 from prompt_hmr.utils.rotation_utils import rotation_6d_to_matrix
 from prompt_hmr.smpl_family import SMPLX, SMPL
 from .components import ImageEncoder, PromptEncoder, SMPLDecoder
+from data_config import BODY_MODELS_ROOT
 
-SMPLX_MODEL_DIR = 'data/body_models/smplx'
-SMPL_MODEL_DIR = 'data/body_models/smpl'
-SMPLX2SMPL = 'data/body_models/smplx2smpl.pkl'
+SMPLX_MODEL_DIR = join(BODY_MODELS_ROOT, "smplx")
+SMPL_MODEL_DIR = join(BODY_MODELS_ROOT, "smpl")
+SMPLX2SMPL = join(BODY_MODELS_ROOT, "smplx2smpl.pkl")
 
 class PHMR(pl.LightningModule):
     def __init__(
@@ -153,4 +155,3 @@ class PHMR(pl.LightningModule):
             output['smpl_j3d'] = self.smpl.J_regressor @ smpl_verts
             
         return output
-

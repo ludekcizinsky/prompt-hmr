@@ -32,6 +32,7 @@ from torch.utils.data import Dataset
 import torchvision.transforms as transforms
 
 from .resnet import resnet50, resnet101
+from data_config import PRETRAIN_ROOT
 
 
 # CKPT = '/ps/scratch/mkocabas/developments/cvpr2021_projects/pare/logs/cam_reg/pano_scalenet_v3_softargmax_l2_lw10/22-02-2021_18-32-07_pano_scalenet_v3_softargmax_l2_lw10_train/tb_logs/0/checkpoints/epoch=26-step=337742.ckpt'
@@ -463,7 +464,7 @@ def run_spec_calib(images, out_folder=None, loss_type='softargmax_l2', save_res=
         num_fc_channels=1024,
     ).to(device)
     
-    CKPT = 'data/pretrain/camcalib_sa_biased_l2.ckpt'
+    CKPT = f'{PRETRAIN_ROOT}/camcalib_sa_biased_l2.ckpt'
     
     if os.path.exists('/.dockerenv') or 'AWS_DEFAULT_REGION' in os.environ.keys():
         CKPT = os.path.abspath(CKPT.replace('data', '/code/data'))

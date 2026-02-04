@@ -7,7 +7,7 @@ import time
 import tyro
 
 sys.path.insert(0, os.path.dirname(__file__) + '/..')
-from data_config import SMPLX_PATH
+from data_config import EXAMPLES_ROOT, SMPLX_PATH
 from prompt_hmr.smpl_family import SMPLX as SMPLX_Layer
 from prompt_hmr.utils.rotation_conversions import axis_angle_to_matrix
 from prompt_hmr.vis.viser import viser_vis_human, viser_vis_world4d
@@ -15,7 +15,7 @@ from prompt_hmr.vis.traj import get_floor_mesh
 from pipeline import Pipeline
 
 
-def main(input_video='data/examples/boxing_short.mp4', 
+def main(input_video=os.path.join(EXAMPLES_ROOT, 'boxing_short.mp4'), 
          static_camera=False,
          run_viser=True,
          viser_total=1500, 
