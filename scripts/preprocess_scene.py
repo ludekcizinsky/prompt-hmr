@@ -208,9 +208,10 @@ def main(scene_dir: str, static_camera: bool = False):
     # Write outputs per frame
     for i, frame_name in enumerate(frame_names):
         # all_cameras
-        Rwc = cam_world['Rwc'][i]
-        Twc = cam_world['Twc'][i]
-        extr = np.concatenate([Rwc, Twc.reshape(3, 1)], axis=1).astype(np.float32)
+        Rcw = cam_world['Rcw'][i]
+        Tcw = cam_world['Tcw'][i]
+        # Save world->camera extrinsics to match visualization expectations.
+        extr = np.concatenate([Rcw, Tcw.reshape(3, 1)], axis=1).astype(np.float32)
         np.savez(
             os.path.join(all_cameras_dir, f"{frame_name}.npz"),
             intrinsics=K[None, ...],
