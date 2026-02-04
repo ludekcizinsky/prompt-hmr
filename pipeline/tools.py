@@ -1,7 +1,12 @@
 import os
+import json
+import subprocess
+from pathlib import Path
+
 import cv2
 import torch
 import numpy as np
+from PIL import Image
 from ultralytics import YOLO
 import supervision as sv
 from collections import defaultdict
@@ -106,7 +111,7 @@ def detect_track(images, savedir=None, visualization=False,
 def detect_segment_track_sam(images, out_path, paths_dict, debug_masks, sam2_type, 
                              detector_type='detectron2', filter_ng_points=False, kp_thres=0.1, 
                              num_max_people=10, height_thresh=0.3, score_thresh=0.4, det_thresh=0.5, 
-                             bbox_interp=False):
+                             bbox_interp=False, sam_backend='sam2', sam3_env='sam3'):
     from torch.utils.data import DataLoader
     from torchvision.models.segmentation import DeepLabV3_ResNet50_Weights
     from detectron2.config import get_cfg
@@ -136,31 +141,32 @@ def detect_segment_track_sam(images, out_path, paths_dict, debug_masks, sam2_typ
     masks = deeplab_masks.cpu().numpy()
     del deeplab_masks
     
-    sam2_registry = {
-        'tiny': {
-            'checkpoint': paths_dict['sam2'] + '/sam2_hiera_tiny.pt',
-            'config': "pipeline/sam2/sam2_hiera_t.yaml",
-        },
-        'small': {
-            'checkpoint': paths_dict['sam2'] + '/sam2_hiera_small.pt',
-            'config': "pipeline/sam2/sam2_hiera_s.yaml",
-        },
-        'base_plus': {
-            'checkpoint': paths_dict['sam2'] + '/sam2_hiera_base_plus.pt',
-            'config': "pipeline/sam2/sam2_hiera_b+.yaml",
-        },
-        'large': {
-            'checkpoint': paths_dict['sam2'] + '/sam2_hiera_large.pt',
-            'config': "pipeline/sam2/sam2_hiera_l.yaml"
-        },
-    }
+    if sam_backend == 'sam2':
+        sam2_registry = {
+            'tiny': {
+                'checkpoint': paths_dict['sam2'] + '/sam2_hiera_tiny.pt',
+                'config': "pipeline/sam2/sam2_hiera_t.yaml",
+            },
+            'small': {
+                'checkpoint': paths_dict['sam2'] + '/sam2_hiera_small.pt',
+                'config': "pipeline/sam2/sam2_hiera_s.yaml",
+            },
+            'base_plus': {
+                'checkpoint': paths_dict['sam2'] + '/sam2_hiera_base_plus.pt',
+                'config': "pipeline/sam2/sam2_hiera_b+.yaml",
+            },
+            'large': {
+                'checkpoint': paths_dict['sam2'] + '/sam2_hiera_large.pt',
+                'config': "pipeline/sam2/sam2_hiera_l.yaml"
+            },
+        }
 
-    checkpoint = sam2_registry[sam2_type]['checkpoint']
-    model_cfg = sam2_registry[sam2_type]['config']
-    if not os.path.exists(model_cfg):
-        model_cfg = '/code/' + model_cfg
-    model_cfg = '/' + os.path.abspath(model_cfg)
-    predictor = build_sam2_video_predictor(model_cfg, checkpoint)
+        checkpoint = sam2_registry[sam2_type]['checkpoint']
+        model_cfg = sam2_registry[sam2_type]['config']
+        if not os.path.exists(model_cfg):
+            model_cfg = '/code/' + model_cfg
+        model_cfg = '/' + os.path.abspath(model_cfg)
+        predictor = build_sam2_video_predictor(model_cfg, checkpoint)
     
     if detector_type == 'detectron2':
         # ViTDet
@@ -238,6 +244,69 @@ def detect_segment_track_sam(images, out_path, paths_dict, debug_masks, sam2_typ
     
     if start_frame == -1:
         raise ValueError("No persons detected in any of the images.")
+
+    if sam_backend == 'sam3':
+        track_results = _run_sam3_tracking(
+            images=images,
+            out_path=out_path,
+            best_boxes=best_boxes,
+            best_keypoints=best_keypoints,
+            start_frame=start_frame,
+            filter_ng_points=filter_ng_points,
+            kp_thres=kp_thres,
+            sam3_env=sam3_env,
+        )
+
+        for k in track_results.keys():
+            track_results[k]['frames'] = np.array(track_results[k]['frames'])
+            track_results[k]['bboxes'] = np.array(track_results[k]['bboxes'])
+            track_results[k]['masks'] = np.array(track_results[k]['masks'])
+            bboxes = track_results[k]['bboxes']
+            frames = track_results[k]['frames']
+            obj_masks = track_results[k]['masks']
+            
+            bb_heights = bboxes[:, 3] - bboxes[:, 1]
+            bb_widths = bboxes[:, 2] - bboxes[:, 0]
+            
+            # Remove the 0s at the beginning and end of the bb_heights
+            non_zero_indices = np.where(np.logical_and(bb_heights > 0, bb_widths > 0))[0]
+            if len(non_zero_indices) > 0:
+                start_index = non_zero_indices[0]
+                end_index = non_zero_indices[-1] + 1
+                
+                frames = frames[start_index:end_index]
+                bboxes = bboxes[start_index:end_index]
+                obj_masks = obj_masks[start_index:end_index]
+                bb_heights = bb_heights[start_index:end_index]
+                bb_widths = bb_widths[start_index:end_index]
+                
+            # for the remaining interpolated frames, interpolate the bounding boxes
+            bboxes = bboxes[np.logical_and(bb_heights > 10, bb_widths > 10)]
+            frames = frames[np.logical_and(bb_heights > 10, bb_widths > 10)]
+            obj_masks = obj_masks[np.logical_and(bb_heights > 10, bb_widths > 10)]
+            
+            if len(bboxes) == 0 or len(frames) == 0:
+                print(f"No valid bboxes or frames for track {k}")
+                continue
+            
+            if bbox_interp:
+                interp_bboxes, interp_frames, interp_masks = interpolate_bboxes(bboxes, frames, obj_masks, fn='linear')
+            else:
+                interp_bboxes, interp_frames, interp_masks = bboxes, frames, obj_masks
+            
+            track_results[k]['frames'] = interp_frames
+            track_results[k]['bboxes'] = interp_bboxes
+            track_results[k]['masks'] = interp_masks
+            track_results[k]['detected'] = np.sum(interp_masks, axis=(1, 2)) > 1
+            
+        # sort the track_results by the number of frames and then take the num_max_people 
+        track_results = dict(sorted(track_results.items(), key=lambda x: len(x[1]['frames']), reverse=True))
+        keep_track_ids = list(track_results.keys())[:num_max_people]
+        track_results = {k: v for k, v in track_results.items() if k in keep_track_ids}
+        
+        del detector
+        del segm_model
+        return track_results, masks
             
     with torch.inference_mode(), torch.autocast("cuda", dtype=torch.bfloat16):
         if isinstance(images[0], str):
@@ -396,6 +465,144 @@ def detect_segment_track_sam(images, out_path, paths_dict, debug_masks, sam2_typ
     return track_results, masks
 
 
+def _write_frames_to_dir(images, frames_dir: Path):
+    frames_dir.mkdir(parents=True, exist_ok=True)
+    existing = list(frames_dir.glob("*.jpg"))
+    if len(existing) == len(images):
+        return
+    for i in range(len(images)):
+        if isinstance(images[i], str):
+            img = cv2.imread(images[i])
+            if img is None:
+                raise RuntimeError(f"Failed to read image: {images[i]}")
+            img = img[..., ::-1]
+        else:
+            img = images[i]
+        if img.dtype != np.uint8:
+            if img.max() <= 1.0:
+                img = (img * 255.0).clip(0, 255).astype(np.uint8)
+            else:
+                img = img.astype(np.uint8)
+        Image.fromarray(img).save(frames_dir / f"{i:06d}.jpg", quality=95)
+
+
+def _load_mask_frames(mask_dir: Path):
+    paths = list(mask_dir.glob("*.png"))
+    if not paths:
+        return np.array([], dtype=np.int64), np.zeros((0, 1, 1), dtype=bool)
+    try:
+        paths.sort(key=lambda p: int(p.stem))
+    except Exception:
+        paths.sort()
+    frames = []
+    masks = []
+    for p in paths:
+        m = cv2.imread(str(p), cv2.IMREAD_GRAYSCALE)
+        if m is None:
+            continue
+        frames.append(int(p.stem))
+        masks.append(m > 0)
+    if not masks:
+        return np.array([], dtype=np.int64), np.zeros((0, 1, 1), dtype=bool)
+    return np.array(frames, dtype=np.int64), np.stack(masks, axis=0)
+
+
+def _run_sam3_tracking(
+    images,
+    out_path,
+    best_boxes,
+    best_keypoints,
+    start_frame,
+    filter_ng_points,
+    kp_thres,
+    sam3_env,
+):
+    misc_dir = Path(out_path) / "misc" / "sam3"
+    frames_dir = misc_dir / "frames"
+    prompts_path = misc_dir / "prompts.json"
+    output_dir = misc_dir / "output"
+    misc_dir.mkdir(parents=True, exist_ok=True)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    _write_frames_to_dir(images, frames_dir)
+
+    if isinstance(images[0], str):
+        img0 = cv2.imread(images[0])
+        if img0 is None:
+            raise RuntimeError(f"Failed to read image: {images[0]}")
+        height, width = img0.shape[:2]
+    else:
+        height, width = images[0].shape[:2]
+
+    objects = []
+    for idx in range(len(best_boxes)):
+        pos_kp = best_keypoints[idx][best_keypoints[idx, :, 2] > kp_thres]
+        if pos_kp.size == 0:
+            points = np.zeros((0, 2), dtype=np.float32)
+            point_labels = np.zeros((0,), dtype=np.int64)
+        else:
+            # SAM3 limits prompt points; keep top-scoring keypoints.
+            top_k = 16
+            order = np.argsort(pos_kp[:, 2])[::-1]
+            pos_kp = pos_kp[order[:top_k]]
+            points = pos_kp[:, :2]
+            point_labels = np.ones(len(pos_kp), dtype=np.int64)
+
+        objects.append({
+            "id": idx + 1,
+            "points": points.tolist(),
+            "labels": point_labels.tolist(),
+            "box": best_boxes[idx].tolist(),
+        })
+
+    prompts = {
+        "prompt_frame": int(start_frame),
+        "frame_size": [int(width), int(height)],
+        "objects": objects,
+    }
+    prompts_path.write_text(json.dumps(prompts), encoding="utf-8")
+
+    sam3_cli = Path(__file__).resolve().parents[3] / "submodules" / "sam3" / "sam3_points_cli.py"
+    cmd = [
+        "conda",
+        "run",
+        "-n",
+        sam3_env,
+        "python",
+        str(sam3_cli),
+        "--frames-dir",
+        str(frames_dir),
+        "--prompts-json",
+        str(prompts_path),
+        "--output-dir",
+        str(output_dir),
+    ]
+    subprocess.run(cmd, check=True)
+
+    track_results = {}
+    masks_root = output_dir / "masks"
+    if not masks_root.exists():
+        raise RuntimeError(f"SAM3 output missing: {masks_root}")
+    for obj_dir in masks_root.iterdir():
+        if not obj_dir.is_dir() or obj_dir.name == "union":
+            continue
+        obj_id = int(obj_dir.name)
+        frames, masks = _load_mask_frames(obj_dir)
+        if frames.size == 0:
+            continue
+        mask_tensor = torch.from_numpy(masks.astype(bool))
+        bboxes = batched_mask_to_box(mask_tensor).cpu().numpy()
+        track_results[obj_id] = {
+            'track_id': obj_id,
+            'bbox_format': 'x1y1x2y2',
+            'frames': frames,
+            'bboxes': bboxes,
+            'masks': masks,
+        }
+
+    return track_results
+
+
 def recursive_to_dict(obj):
     """Convert a nested structure of defaultdicts (and any normal dicts) into plain dicts."""
     if isinstance(obj, defaultdict):          # or `collections.abc.Mapping`
@@ -520,10 +727,3 @@ def interpolate_bboxes(bboxes, frames, masks, fn='linear'):
     all_masks[indices] = masks
 
     return interp_bboxes, all_frames, all_masks
-
-
-
-
-
-
-

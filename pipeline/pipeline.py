@@ -71,7 +71,7 @@ class Pipeline:
                                   bbox_interp=self.cfg.bbox_interp)
             masks = segment.segment_subjects(self.images)
 
-        elif self.cfg.tracker == 'sam2':
+        elif self.cfg.tracker == 'sam':
             tracks, masks = detect_segment_track_sam(
                 self.images, 
                 self.seq_folder, 
@@ -83,7 +83,9 @@ class Pipeline:
                 det_thresh=self.cfg.det_thresh,
                 score_thresh=self.cfg.det_score_thresh,
                 height_thresh=self.cfg.det_height_thresh,
-                bbox_interp=self.cfg.bbox_interp
+                bbox_interp=self.cfg.bbox_interp,
+                sam_backend=self.cfg.get("sam_backend", "sam2"),
+                sam3_env=self.cfg.get("sam3_env", "sam3"),
             )
             
         self.results['masks'] = masks
@@ -106,7 +108,7 @@ class Pipeline:
     
 
     def hps_estimation(self,):
-        if self.cfg.tracker == 'sam2':
+        if self.cfg.tracker == 'sam':
             mask_prompt = True
         else:
             mask_prompt = False
@@ -323,9 +325,9 @@ class Pipeline:
             stride = len(self.images)//30
             if stride == 0:
                 stride = 1
-            spec_calib = run_cam_calib(self.images, out_folder=seq_folder+'/spec_calib', 
-                                        save_res=True, stride=stride, method='spec', 
-                                        first_frame_idx=0)       
+            spec_calib = run_cam_calib(self.images, out_folder=None,
+                                        save_res=False, stride=stride, method='spec',
+                                        first_frame_idx=0)
             self.results['spec_calib'] = spec_calib
 
         ### detect_segment_track 

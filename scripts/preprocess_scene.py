@@ -106,8 +106,8 @@ def main(scene_dir: str, static_camera: bool = False):
             stride = 1
         spec_calib = run_cam_calib(
             images,
-            out_folder=os.path.join(scene_dir, "spec_calib"),
-            save_res=True,
+            out_folder=None,
+            save_res=False,
             stride=stride,
             method='spec',
             first_frame_idx=0,

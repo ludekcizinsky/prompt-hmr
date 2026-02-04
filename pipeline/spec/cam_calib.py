@@ -477,7 +477,10 @@ def run_spec_calib(images, out_folder=None, loss_type='softargmax_l2', save_res=
 
     model.eval()
 
-    os.makedirs(out_folder, exist_ok=True)
+    if out_folder is None:
+        save_res = False
+    else:
+        os.makedirs(out_folder, exist_ok=True)
 
     focal_length = []
 
@@ -541,9 +544,10 @@ def run_spec_calib(images, out_folder=None, loss_type='softargmax_l2', save_res=
                 'pitch': pred_pitch.item(),
                 'roll': pred_roll.item(),
             }
-            img, _ = show_horizon_line(img.copy(), pred_vfov, pred_pitch, pred_roll, focal_length=-1,
-                                    debug=True, color=(255, 0, 0), width=3, GT=False)
-            imsave(os.path.join(out_folder, '0000.jpg'), img)
+            if save_res:
+                img, _ = show_horizon_line(img.copy(), pred_vfov, pred_pitch, pred_roll, focal_length=-1,
+                                        debug=True, color=(255, 0, 0), width=3, GT=False)
+                imsave(os.path.join(out_folder, '0000.jpg'), img)
 
         focal_length.append(pred_f_pix)
     
@@ -581,15 +585,19 @@ def run_wildcam_calib(images=None, out_folder=None, save_res=False, stride=1, fi
         'roll': pred_roll,
     }
     
-    os.makedirs(out_folder, exist_ok=True)
+    if out_folder is None:
+        save_res = False
+    else:
+        os.makedirs(out_folder, exist_ok=True)
     if isinstance(images, np.ndarray):
         img = images[0]
     elif isinstance(images[0], str):
         img = cv2.imread(images[0])[..., ::-1]
         
-    img, _ = show_horizon_line(img.copy(), pred_vfov, pred_pitch, pred_roll, focal_length=-1,
-                               debug=True, color=(255, 0, 0), width=3, GT=False)
-    imsave(os.path.join(out_folder, '0000.jpg'), img)
+    if save_res:
+        img, _ = show_horizon_line(img.copy(), pred_vfov, pred_pitch, pred_roll, focal_length=-1,
+                                   debug=True, color=(255, 0, 0), width=3, GT=False)
+        imsave(os.path.join(out_folder, '0000.jpg'), img)
 
     model = torch.hub.load('ShngJZ/WildCamera', "WildCamera", pretrained=True, verbose=False).to('cuda')
     model.eval()
