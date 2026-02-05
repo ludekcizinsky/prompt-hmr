@@ -14,6 +14,10 @@ from scipy.interpolate import make_interp_spline, interp1d
 
 from .image_folder import ImageFolder
 
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
 
 def est_camera(image):
     if isinstance(image, str):
@@ -108,10 +112,11 @@ def detect_track(images, savedir=None, visualization=False,
     return tracks
 
 
-def detect_segment_track_sam(images, out_path, paths_dict, debug_masks, sam2_type, 
-                             detector_type='detectron2', filter_ng_points=False, kp_thres=0.1, 
-                             num_max_people=10, height_thresh=0.3, score_thresh=0.4, det_thresh=0.5, 
-                             bbox_interp=False, sam_backend='sam2', sam3_env='sam3'):
+def detect_segment_track_sam(images, out_path, paths_dict, debug_masks, sam2_type,
+                             detector_type='detectron2', filter_ng_points=False, kp_thres=0.1,
+                             num_max_people=10, height_thresh=0.3, score_thresh=0.4, det_thresh=0.5,
+                             bbox_interp=False, sam_backend='sam2', sam3_env='sam3',
+                             sam3_prompt_points=16):
     from torch.utils.data import DataLoader
     from torchvision.models.segmentation import DeepLabV3_ResNet50_Weights
     from detectron2.config import get_cfg
@@ -255,6 +260,7 @@ def detect_segment_track_sam(images, out_path, paths_dict, debug_masks, sam2_typ
             filter_ng_points=filter_ng_points,
             kp_thres=kp_thres,
             sam3_env=sam3_env,
+            sam3_prompt_points=sam3_prompt_points,
         )
 
         for k in track_results.keys():
@@ -516,6 +522,7 @@ def _run_sam3_tracking(
     filter_ng_points,
     kp_thres,
     sam3_env,
+    sam3_prompt_points,
 ):
     misc_dir = Path(out_path) / "misc" / "sam3"
     frames_dir = misc_dir / "frames"
@@ -534,6 +541,15 @@ def _run_sam3_tracking(
     else:
         height, width = images[0].shape[:2]
 
+    def _load_prompt_frame_rgb():
+        if isinstance(images[start_frame], str):
+            img_bgr = cv2.imread(images[start_frame])
+            if img_bgr is None:
+                raise RuntimeError(f"Failed to read image: {images[start_frame]}")
+            return cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+        # In-memory frames are already RGB in this pipeline.
+        return images[start_frame]
+
     objects = []
     for idx in range(len(best_boxes)):
         pos_kp = best_keypoints[idx][best_keypoints[idx, :, 2] > kp_thres]
@@ -542,7 +558,9 @@ def _run_sam3_tracking(
             point_labels = np.zeros((0,), dtype=np.int64)
         else:
             # SAM3 limits prompt points; keep top-scoring keypoints.
-            top_k = 16
+            top_k = int(sam3_prompt_points)
+            if top_k <= 0:
+                top_k = 0
             order = np.argsort(pos_kp[:, 2])[::-1]
             pos_kp = pos_kp[order[:top_k]]
             points = pos_kp[:, :2]
@@ -561,6 +579,29 @@ def _run_sam3_tracking(
         "objects": objects,
     }
     prompts_path.write_text(json.dumps(prompts), encoding="utf-8")
+
+    # Save prompt visualization.
+    try:
+        prompt_img = _load_prompt_frame_rgb()
+        n_obj = max(1, len(objects))
+        fig, axes = plt.subplots(1, n_obj, figsize=(5 * n_obj, 5), squeeze=False)
+        for i, obj in enumerate(objects):
+            ax = axes[0, i]
+            ax.imshow(prompt_img)
+            ax.axis("off")
+            box = obj["box"]
+            if box and len(box) == 4:
+                x1, y1, x2, y2 = box
+                ax.plot([x1, x2, x2, x1, x1], [y1, y1, y2, y2, y1], color="lime", linewidth=2)
+            pts = np.array(obj["points"], dtype=np.float32)
+            if pts.size > 0:
+                ax.scatter(pts[:, 0], pts[:, 1], s=30, c="red")
+            ax.set_title(f"Person {obj['id']}")
+        fig.tight_layout()
+        fig.savefig(misc_dir / "sam3_prompts.png", dpi=150)
+        plt.close(fig)
+    except Exception as exc:
+        print(f"[WARN] Failed to save SAM3 prompt visualization: {exc}")
 
     sam3_cli = Path(__file__).resolve().parents[3] / "submodules" / "sam3" / "sam3_points_cli.py"
     cmd = [

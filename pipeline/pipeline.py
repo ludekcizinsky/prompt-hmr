@@ -86,12 +86,12 @@ class Pipeline:
                 bbox_interp=self.cfg.bbox_interp,
                 sam_backend=self.cfg.get("sam_backend", "sam2"),
                 sam3_env=self.cfg.get("sam3_env", "sam3"),
+                sam3_prompt_points=self.cfg.get("sam3_prompt_points", 16),
             )
             
         self.results['masks'] = masks
         self.results['people'] = tracks
         self.results['has_tracks'] = True
-
 
     def estimate_2d_keypoints(self,):
         model = load_vit_model(model_path=self.data_dict['vitpose'])

@@ -218,23 +218,21 @@ def main(scene_dir: str, static_camera: bool = False):
             extrinsics=extr[None, ...],
         )
 
-        # seg all
-        if union_masks is not None and i < union_masks.shape[0]:
-            umask = union_masks[i]
-        else:
-            umask = np.zeros(images.shape[1:3], dtype=bool)
-        umask_img = (umask.astype(np.uint8) * 255)
-        cv2.imwrite(os.path.join(seg_all_dir, f"{frame_name}.png"), umask_img)
-
         # per-person seg masks
+        union_mask = np.zeros(images.shape[1:3], dtype=bool)
         for tid in track_ids:
             pid = id_map[tid]
             m = person_masks[tid].get(i, None)
             if m is None:
                 m = np.zeros(images.shape[1:3], dtype=bool)
+            union_mask |= m
             m_img = (m.astype(np.uint8) * 255)
             out_path = os.path.join(scene_dir, "seg", "img_seg_mask", cam_id, str(pid), f"{frame_name}.png")
             cv2.imwrite(out_path, m_img)
+
+        # seg all (union of per-person masks)
+        umask_img = (union_mask.astype(np.uint8) * 255)
+        cv2.imwrite(os.path.join(seg_all_dir, f"{frame_name}.png"), umask_img)
 
         # smplx
         frame_pose = []
