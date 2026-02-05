@@ -5,13 +5,24 @@ from pathlib import Path
 import cv2
 import numpy as np
 import tyro
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+os.environ.setdefault("PYOPENGL_PLATFORM", "egl")
+import pyrender
+import trimesh
 
+REPO_ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, os.path.dirname(__file__) + '/..')
 
 from pipeline import Pipeline
 from pipeline.tools import est_camera
 from pipeline.spec import run_cam_calib
+from data_config import BODY_MODELS_ROOT
+from submodules.smplx import smplx
 
+import torch
 
 def _list_image_frames(image_dir: str):
     exts = ("*.jpg", "*.jpeg", "*.png")
@@ -71,6 +82,106 @@ def _split_smplx_pose(pose_aa):
     lhand_pose = pose_aa[:, 75:120].reshape(-1, 15, 3)
     rhand_pose = pose_aa[:, 120:165].reshape(-1, 15, 3)
     return root_pose, body_pose, jaw_pose, leye_pose, reye_pose, lhand_pose, rhand_pose
+
+
+def _load_smplx_layer(device: str):
+    layer = smplx.create(
+        str(Path(BODY_MODELS_ROOT)),
+        model_type="smplx",
+        gender="neutral",
+        ext="npz",
+        use_pca=False,
+        use_face_contour=True,
+        flat_hand_mean=True,
+    )
+    return layer.to(device)
+
+
+def _render_smplx_silhouette(
+    vertices: np.ndarray,
+    faces: np.ndarray,
+    intrinsics: np.ndarray,
+    extrinsics: np.ndarray,
+    width: int,
+    height: int,
+) -> np.ndarray:
+    scene = pyrender.Scene(bg_color=[0.0, 0.0, 0.0, 0.0], ambient_light=(1.0, 1.0, 1.0))
+    mesh = trimesh.Trimesh(vertices=vertices, faces=faces, process=False)
+    material = pyrender.MetallicRoughnessMaterial(
+        metallicFactor=0.0,
+        roughnessFactor=1.0,
+        alphaMode="OPAQUE",
+        baseColorFactor=(1.0, 1.0, 1.0, 1.0),
+    )
+    pr_mesh = pyrender.Mesh.from_trimesh(mesh, material=material, smooth=False)
+    scene.add(pr_mesh)
+
+    fx, fy, cx, cy = (
+        float(intrinsics[0, 0]),
+        float(intrinsics[1, 1]),
+        float(intrinsics[0, 2]),
+        float(intrinsics[1, 2]),
+    )
+    camera = pyrender.IntrinsicsCamera(fx=fx, fy=fy, cx=cx, cy=cy, zfar=1e4)
+    w2c_cv = np.eye(4, dtype=np.float32)
+    w2c_cv[:3, :4] = extrinsics.astype(np.float32)
+    cv_to_gl = np.array(
+        [
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, -1.0, 0.0, 0.0],
+            [0.0, 0.0, -1.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ],
+        dtype=np.float32,
+    )
+    w2c_gl = cv_to_gl @ w2c_cv
+    c2w_gl = np.linalg.inv(w2c_gl)
+    scene.add(camera, pose=c2w_gl)
+
+    renderer = pyrender.OffscreenRenderer(viewport_width=width, viewport_height=height)
+    color_rgba, _ = renderer.render(scene, flags=pyrender.RenderFlags.RGBA)
+    renderer.delete()
+    mask = color_rgba[..., 3] > 0
+    return mask
+
+
+def _compute_iou(a: np.ndarray, b: np.ndarray) -> float:
+    a = a.astype(bool)
+    b = b.astype(bool)
+    inter = np.logical_and(a, b).sum()
+    union = np.logical_or(a, b).sum()
+    return float(inter) / float(union) if union > 0 else 0.0
+
+
+def _save_silhouette_debug(
+    gt_mask: np.ndarray,
+    pred_mask: np.ndarray,
+    out_path: Path,
+    iou: float,
+) -> None:
+    h, w = gt_mask.shape
+    overlay = np.zeros((h, w, 3), dtype=np.uint8)
+    overlay[gt_mask] = (0, 0, 255)  # blue
+    overlay[pred_mask] = (255, 165, 0)  # orange (overlays gt)
+
+    fig, ax = plt.subplots(figsize=(6, 6), dpi=100)
+    ax.imshow(overlay)
+    ax.axis("off")
+    ax.set_title(f"IoU: {iou:.3f}")
+    fig.tight_layout(pad=0)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, dpi=150)
+    plt.close(fig)
+
+
+def _pad_or_truncate(vec: torch.Tensor, target_dim: int) -> torch.Tensor:
+    current_dim = int(vec.shape[-1])
+    if current_dim == target_dim:
+        return vec
+    if current_dim > target_dim:
+        return vec[..., :target_dim]
+    pad = torch.zeros((*vec.shape[:-1], target_dim - current_dim), device=vec.device, dtype=vec.dtype)
+    return torch.cat([vec, pad], dim=-1)
 
 
 def main(scene_dir: str, static_camera: bool = False):
@@ -293,6 +404,113 @@ def main(scene_dir: str, static_camera: bool = False):
         skip_path = os.path.join(scene_dir, "skip_frames.csv")
         with open(skip_path, "w", encoding="utf-8") as f:
             f.write(", ".join(str(x) for x in sorted(skip_frames)))
+
+    # Debug silhouettes: GT mask vs SMPL-X rendered mask.
+    device = "cuda" if cv2.cuda.getCudaEnabledDeviceCount() > 0 else "cpu"
+    smplx_layer = _load_smplx_layer(device)
+    smplx_faces = np.asarray(smplx_layer.faces, dtype=np.int32)
+    debug_root = Path(scene_dir) / "misc" / "prompthmr" / "silhouettes"
+    img_h, img_w = images.shape[1:3]
+
+    iou_sums = {pid: 0.0 for pid in range(len(track_ids))}
+    iou_counts = {pid: 0 for pid in range(len(track_ids))}
+
+    for i, frame_name in enumerate(frame_names):
+        smplx_path = Path(smplx_dir) / f"{frame_name}.npz"
+        if not smplx_path.exists():
+            continue
+        smplx_data = np.load(smplx_path)
+        if "betas" not in smplx_data:
+            continue
+
+        betas = smplx_data["betas"]
+        root_pose = smplx_data["root_pose"]
+        body_pose = smplx_data["body_pose"]
+        jaw_pose = smplx_data["jaw_pose"]
+        leye_pose = smplx_data["leye_pose"]
+        reye_pose = smplx_data["reye_pose"]
+        lhand_pose = smplx_data["lhand_pose"]
+        rhand_pose = smplx_data["rhand_pose"]
+        trans = smplx_data["trans"]
+
+        if betas.shape[0] == 0:
+            continue
+
+        # Camera params for this frame.
+        cam_npz = np.load(os.path.join(all_cameras_dir, f"{frame_name}.npz"))
+        intr = cam_npz["intrinsics"][0]
+        extr = cam_npz["extrinsics"][0]
+
+        for pid in range(betas.shape[0]):
+            mask_path = Path(scene_dir) / "seg" / "img_seg_mask" / cam_id / str(pid) / f"{frame_name}.png"
+            if not mask_path.exists():
+                continue
+            gt_mask = cv2.imread(str(mask_path), cv2.IMREAD_GRAYSCALE)
+            if gt_mask is None:
+                continue
+            gt_mask = gt_mask > 0
+
+            with torch.no_grad():
+                betas_tensor = torch.tensor(
+                    betas[pid : pid + 1], dtype=torch.float32, device=device
+                )
+                expected_betas = int(getattr(smplx_layer, "num_betas", betas_tensor.shape[-1]))
+                betas_tensor = _pad_or_truncate(betas_tensor, expected_betas)
+
+                expr_tensor = None
+                expected_expr = int(getattr(smplx_layer, "num_expression_coeffs", 0))
+                if expected_expr > 0:
+                    expr_tensor = torch.zeros(
+                        (1, expected_expr), dtype=betas_tensor.dtype, device=betas_tensor.device
+                    )
+
+                def _maybe_flatten(x):
+                    if x.ndim == 3:
+                        return x.reshape(x.shape[0], -1)
+                    return x
+
+                output = smplx_layer(
+                    betas=betas_tensor,
+                    global_orient=_maybe_flatten(
+                        torch.tensor(root_pose[pid : pid + 1], dtype=torch.float32, device=device)
+                    ),
+                    body_pose=_maybe_flatten(
+                        torch.tensor(body_pose[pid : pid + 1], dtype=torch.float32, device=device)
+                    ),
+                    jaw_pose=_maybe_flatten(
+                        torch.tensor(jaw_pose[pid : pid + 1], dtype=torch.float32, device=device)
+                    ),
+                    leye_pose=_maybe_flatten(
+                        torch.tensor(leye_pose[pid : pid + 1], dtype=torch.float32, device=device)
+                    ),
+                    reye_pose=_maybe_flatten(
+                        torch.tensor(reye_pose[pid : pid + 1], dtype=torch.float32, device=device)
+                    ),
+                    left_hand_pose=_maybe_flatten(
+                        torch.tensor(lhand_pose[pid : pid + 1], dtype=torch.float32, device=device)
+                    ),
+                    right_hand_pose=_maybe_flatten(
+                        torch.tensor(rhand_pose[pid : pid + 1], dtype=torch.float32, device=device)
+                    ),
+                    transl=torch.tensor(trans[pid : pid + 1], dtype=torch.float32, device=device),
+                    expression=expr_tensor if expr_tensor is not None else None,
+                )
+            verts = output.vertices.detach().cpu().numpy()[0]
+            pred_mask = _render_smplx_silhouette(
+                verts, smplx_faces, intr, extr, img_w, img_h
+            )
+            iou = _compute_iou(gt_mask, pred_mask)
+            iou_sums[pid] = iou_sums.get(pid, 0.0) + iou
+            iou_counts[pid] = iou_counts.get(pid, 0) + 1
+            out_path = debug_root / str(pid) / f"{frame_name}.png"
+            _save_silhouette_debug(gt_mask, pred_mask, out_path, iou)
+
+    results_path = debug_root / "results.txt"
+    with results_path.open("w", encoding="utf-8") as f:
+        for pid in sorted(iou_sums.keys()):
+            count = iou_counts.get(pid, 0)
+            mean_iou = (iou_sums[pid] / count) if count > 0 else 0.0
+            f.write(f"person {pid}: {mean_iou:.6f}\n")
 
 
 if __name__ == "__main__":

@@ -114,7 +114,7 @@ class Pipeline:
             mask_prompt = False
 
         phmr = PromptHMR_Video()
-        self.results = phmr.run(self.images, self.results, mask_prompt)
+        self.results = phmr.run(self.images, self.results, mask_prompt, debug_dir=self.cfg.seq_folder)
         self.results['contact_joint_ids'] = [7, 10, 8, 11, 20, 21]
         self.results['has_hps_cam'] = True
     

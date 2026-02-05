@@ -1,4 +1,8 @@
+import json
+import cv2
 import numpy as np
+from pathlib import Path
+from typing import Optional
 from PIL import Image, ImageOps
 from omegaconf import OmegaConf
 import scipy.signal as signal
@@ -34,12 +38,16 @@ def load_video_head():
 class PromptHMR_Video():
     def __init__(self,):
         super().__init__()
+        # Image-level PromptHMR model (per-frame, per-person estimates).
         self.model = load_phmr(f'{PRETRAIN_ROOT}/phmr/checkpoint.ckpt')
+        # Video head that refines temporal consistency across frames.
         self.vid_head = load_video_head()
     
     @torch.no_grad()
-    def run(self, images, results, mask_prompt=True):
+    def run(self, images, results, mask_prompt=True, debug_dir=None):
+        # Tracks contain per-person bboxes/masks/frames from the tracking stage.
         tracks = results['people']
+        # Camera intrinsics (focal length + principal point).
         camera = results['camera']
         
         img_focal = camera['img_focal']
@@ -51,16 +59,24 @@ class PromptHMR_Video():
         cam_intrinsic[0, 2] = img_center[0].item() if isinstance(img_center, np.ndarray) else img_center[0]
         cam_intrinsic[1, 2] = img_center[1].item() if isinstance(img_center, np.ndarray) else img_center[1]
         
-        dataset = PromptHMRVideoDataset(images, tracks, cam_intrinsic)
+        # Build a dataset of per-frame inputs for the PromptHMR image model.
+        debug_root = None
+        track_id_map = None
+        if debug_dir is not None:
+            debug_root = Path(debug_dir) / "misc" / "prompthmr" / "image_pose_input"
+            track_ids_sorted = sorted(tracks.keys())
+            track_id_map = {tid: idx for idx, tid in enumerate(track_ids_sorted)}
+        dataset = PromptHMRVideoDataset(images, tracks, cam_intrinsic, debug_root, track_id_map)
         dataloader = DataLoader(dataset, batch_size=16, shuffle=False, num_workers=0, collate_fn=lambda x: x)
 
+        # Prepare per-track lists for image-model outputs.
         for k, v in tracks.items():
             tracks[k]['smplx_pose'] = []
             tracks[k]['smplx_transl'] = []
             tracks[k]['smplx_betas'] = []
             tracks[k]['prhmr_img_feats'] = []
         
-        # Image model
+        # Image model: run per-frame estimates and cache per-track outputs.
         for batch in dataloader:
             with autocast('cuda'):
                 output = self.model(batch, mask_prompt=mask_prompt)
@@ -75,27 +91,32 @@ class PromptHMR_Video():
                     tracks[tid]['smplx_betas'].append(output[bid]['betas'][btid])
                     tracks[tid]['prhmr_img_feats'].append(output[bid]['features'][btid])
                 
+        # Stack per-track image-model outputs into tensors.
         for k, v in tracks.items():
             tracks[k]['smplx_pose'] = torch.stack(tracks[k]['smplx_pose']).float()
             tracks[k]['smplx_transl'] = torch.stack(tracks[k]['smplx_transl']).float()
             tracks[k]['smplx_betas'] = torch.stack(tracks[k]['smplx_betas']).float()
             tracks[k]['prhmr_img_feats'] = torch.stack(tracks[k]['prhmr_img_feats']).float()
 
-        # Video model
+        # Video model: use temporal head per track to refine pose/shape/translation.
         print(f"Running PRHMR-Vid for tracks")
         for idx, k in enumerate(list(tracks.keys())):
             seqlen = tracks[k]['prhmr_img_feats'].shape[0]
+            # Static camera assumption: identity rotation for all frames.
             R_w2c = torch.eye(3).repeat(seqlen, 1, 1)
             cam_angvel = compute_cam_angvel(R_w2c)
+            # Convert bboxes to center/size and smooth them over time.
             bbx_xys = get_bbx_xys_from_xyxy(torch.from_numpy(tracks[k]['bboxes'])).numpy()
             
             smoothed = np.array([signal.medfilt(param, 11) for param in bbx_xys.T]).T
             bbx_xys = np.array([gaussian_filter1d(traj, 3) for traj in smoothed.T]).T
             bbx_xys = torch.from_numpy(bbx_xys).float()
             
+            # Normalize keypoints into the bbox coordinate frame.
             vitpose = torch.from_numpy(tracks[k]['vitpose'])
             vitpose = normalize_kp2d(vitpose, bbx_xys).float()
             
+            # Build batch for the video head (features + keypoints + camera intrinsics).
             batch = {
                 "length": torch.tensor([seqlen]),
                 "obs": vitpose[None],
@@ -107,13 +128,17 @@ class PromptHMR_Video():
             
             batch = {k: v.cuda() for k, v in batch.items()}
             with torch.amp.autocast('cuda'):
+                # Run video head with keypoints (used for translation).
                 prhmr_vid_output_w_kpts = self.vid_head.pipeline.forward(batch, train=False, postproc=False, static_cam=True)
             
+            # Run video head without keypoints for pose/shape.
             batch['obs'] = torch.zeros_like(batch['obs'])
             with torch.amp.autocast('cuda'):
                 prhmr_vid_output = self.vid_head.pipeline.forward(batch, train=False, postproc=False, static_cam=True)
             
+            # Contact prediction for foot contact etc.
             contact_label = prhmr_vid_output['model_output']['static_conf_logits'].sigmoid() > 0.8
+            # Build SMPL-X pose in axis-angle; hands are filled with identity later.
             smplx_pose_aa = torch.cat(
                 [
                     prhmr_vid_output['pred_smpl_params_incam']['global_orient'][0], 
@@ -127,10 +152,14 @@ class PromptHMR_Video():
             )
             rotmat = torch.cat([rotmat, hand_pose_rotmat], dim=1)
 
+
+            betas_out = prhmr_vid_output['pred_smpl_params_incam']['betas'][0].cpu().float().numpy()
+
+            # Collect camera-space SMPL-X outputs for this track.
             hps_results = {
                 'rotmat': rotmat.cpu().float().numpy(),
                 'pose': smplx_pose_aa.cpu().numpy(),
-                'shape': prhmr_vid_output['pred_smpl_params_incam']['betas'][0].cpu().float().numpy(),
+                'shape': betas_out,
                 'trans': prhmr_vid_output_w_kpts['pred_smpl_params_incam']['transl'][0].cpu().float().numpy(),
                 'contact': contact_label[0].cpu().numpy(),
                 'static_conf_logits': prhmr_vid_output['model_output']['static_conf_logits'][0].cpu().numpy(),
@@ -168,13 +197,15 @@ def pad_image(item, IMG_SIZE=896):
     
     
 class PromptHMRVideoDataset(Dataset):
-    def __init__(self, images, tracks, cam_int):
+    def __init__(self, images, tracks, cam_int, debug_root: Optional[Path] = None, track_id_map: Optional[dict] = None):
         self.images = images
         self.tracks = tracks
         
         frames = set([x for t in tracks.values() for x in t['frames'].tolist()])
         self.frames = sorted(list(frames))
         self.cam_int = cam_int
+        self.debug_root = debug_root
+        self.track_id_map = track_id_map or {}
         self.normalization = Compose([
             ToTensor(),
             Normalize(mean=[0.485, 0.456, 0.406], 
@@ -216,6 +247,7 @@ class PromptHMRVideoDataset(Dataset):
                 kpts.append(kpt)
                 masks.append(mm)
                 
+                
         boxes = torch.from_numpy(np.concatenate(boxes)).float()
         kpts = torch.from_numpy(np.concatenate(kpts)).float()
         masks = torch.from_numpy(np.concatenate(masks)).float()[:, None]
@@ -230,6 +262,37 @@ class PromptHMRVideoDataset(Dataset):
             'masks': masks,
         }
         item = pad_image(item, IMG_SIZE=896)
+        # Save overlay debug (padded RGB + bbox + keypoints + low-res mask) per person/frame.
+        if self.debug_root is not None:
+            frame_name = f"{int(idx):06d}"
+            overlay_img = item['image_cv'].copy()
+            for inst_idx, track_id in enumerate(item['track_ids']):
+                person_idx = self.track_id_map.get(track_id, track_id)
+                out_dir = self.debug_root / str(person_idx) / frame_name
+                out_dir.mkdir(parents=True, exist_ok=True)
+
+                overlay = overlay_img.copy()
+                # Mask overlay (blue, semi-transparent).
+                mask_img = item['masks'][inst_idx, 0].numpy()
+                mask_img = (mask_img > 0).astype(np.uint8) * 255
+                if mask_img.shape[:2] != overlay.shape[:2]:
+                    mask_img = cv2.resize(
+                        mask_img, (overlay.shape[1], overlay.shape[0]), interpolation=cv2.INTER_NEAREST
+                    )
+                mask_img = mask_img > 0
+                blue = np.array([0, 0, 255], dtype=np.uint8)
+                alpha = 0.35
+                overlay[mask_img] = (overlay[mask_img] * (1 - alpha) + blue * alpha).astype(np.uint8)
+
+                # BBox overlay (green).
+                x1, y1, x2, y2 = item['boxes'][inst_idx][:4].numpy().astype(int)
+                cv2.rectangle(overlay, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                # Keypoints overlay (red).
+                kpts_xy = item['kpts'][inst_idx][:, :2].numpy()
+                for x, y in kpts_xy:
+                    cv2.circle(overlay, (int(x), int(y)), 2, (255, 0, 0), -1)
+
+                Image.fromarray(overlay).save(out_dir / "overlay.png")
         item['image'] = self.normalization(item['image_cv'])
         item['image_cv'] = torch.tensor(item['image_cv'])
         return item
