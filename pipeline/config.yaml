@@ -8,6 +8,8 @@ sam3_prompt_points: 0
 enable_interaction_prompt: true
 use_mean_hands: true
 use_image_model_translation: true
+use_bbox_prompt_to_image_model: false
+use_first_frame_video_beta: false
 kp2d_detector: vitpose
 depth_method: metric3d_vit_large
 use_depth: false

@@ -117,7 +117,9 @@ class Pipeline:
         interaction_prompt = bool(self.cfg.get("enable_interaction_prompt", True))
         use_mean_hands = bool(self.cfg.get("use_mean_hands", True))
         use_image_model_translation = bool(self.cfg.get("use_image_model_translation", True))
+        use_bbox_prompt_to_image_model = bool(self.cfg.get("use_bbox_prompt_to_image_model", True))
         print(f"[debug] use_image_model_translation={use_image_model_translation}")
+        print(f"[debug] use_bbox_prompt_to_image_model={use_bbox_prompt_to_image_model}")
 
         phmr = PromptHMR_Video()
         self.results = phmr.run(
@@ -127,6 +129,7 @@ class Pipeline:
             interaction_prompt=interaction_prompt,
             use_mean_hands=use_mean_hands,
             use_image_model_translation=use_image_model_translation,
+            use_bbox_prompt_to_image_model=use_bbox_prompt_to_image_model,
             debug_dir=self.cfg.seq_folder,
         )
         self.results['contact_joint_ids'] = [7, 10, 8, 11, 20, 21]

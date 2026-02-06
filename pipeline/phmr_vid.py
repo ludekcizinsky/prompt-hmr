@@ -52,6 +52,7 @@ class PromptHMR_Video():
         interaction_prompt=True,
         use_mean_hands=True,
         use_image_model_translation=True,
+        use_bbox_prompt_to_image_model=False,
         debug_dir=None,
     ):
         # Tracks contain per-person bboxes/masks/frames from the tracking stage.
@@ -86,10 +87,15 @@ class PromptHMR_Video():
             tracks[k]['prhmr_img_feats'] = []
         
         # Image model: run per-frame estimates and cache per-track outputs.
+        if use_bbox_prompt_to_image_model:
+            print("[debug] BBox prompt to image model: enabled")
+        else:
+            print("[debug] BBox prompt to image model: disabled")
         for batch in dataloader:
             with autocast('cuda'):
                 output = self.model(
                     batch,
+                    box_prompt=use_bbox_prompt_to_image_model,
                     mask_prompt=mask_prompt,
                     interaction_prompt=interaction_prompt,
                     use_mean_hands=use_mean_hands,

@@ -40,6 +40,11 @@ def world_hps_estimation(cfg, results, smplx):
     colors = torch.from_numpy(colors).float()
 
     locations = []
+    use_first_frame_video_beta = bool(cfg.get("use_first_frame_video_beta", False))
+    if use_first_frame_video_beta:
+        print("[debug] Beta source in world_hps_estimation: first frame per track")
+    else:
+        print("[debug] Beta source in world_hps_estimation: temporal mean per track")
 
     pred_cam = results['camera']
     img_focal = pred_cam['img_focal']
@@ -82,15 +87,18 @@ def world_hps_estimation(cfg, results, smplx):
         pred_trans = pred_smpl['trans'].clone()
         
         frame = torch.from_numpy(v['frames'])
-        mean_shape = pred_shape.mean(dim=0, keepdim=True)
-        pred_shape = mean_shape.repeat(len(pred_shape), 1)
+        if use_first_frame_video_beta:
+            shape_ref = pred_shape[:1]
+        else:
+            shape_ref = pred_shape.mean(dim=0, keepdim=True)
+        pred_shape = shape_ref.repeat(len(pred_shape), 1)
 
         cam_r = Rwc[frame]
         cam_t = Twc[frame]
         smpl_t_pose_pelvis = smplx(
             global_orient=torch.zeros(1, 3), 
             body_pose=torch.zeros(1, 21*3), 
-            betas=mean_shape
+            betas=shape_ref
         ).joints[0, 0]
         
         root_orient = pred_rotmat[:, 0]
