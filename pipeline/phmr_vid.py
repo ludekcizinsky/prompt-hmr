@@ -51,6 +51,7 @@ class PromptHMR_Video():
         mask_prompt=True,
         interaction_prompt=True,
         use_mean_hands=True,
+        use_image_model_translation=True,
         debug_dir=None,
     ):
         # Tracks contain per-person bboxes/masks/frames from the tracking stage.
@@ -113,6 +114,10 @@ class PromptHMR_Video():
 
         # Video model: use temporal head per track to refine pose/shape/translation.
         print(f"Running PRHMR-Vid for tracks")
+        if use_image_model_translation:
+            print("[debug] Translation source: image model (per-frame PromptHMR transl).")
+        else:
+            print("[debug] Translation source: video model (GVHMR keypoint-conditioned transl).")
         for idx, k in enumerate(list(tracks.keys())):
             seqlen = tracks[k]['prhmr_img_feats'].shape[0]
             # Static camera assumption: identity rotation for all frames.
@@ -169,15 +174,18 @@ class PromptHMR_Video():
             betas_out = prhmr_vid_output['pred_smpl_params_incam']['betas'][0].cpu().float().numpy()
 
 
-            # Ablation: use per-frame image-model translations instead of video-head translations.
-            # trans_from_img_model = tracks[k]['smplx_transl'].cpu().float().numpy()
+            # Select translation source from config-controlled ablation knob.
+            if use_image_model_translation:
+                trans_out = tracks[k]['smplx_transl'].cpu().float().numpy()
+            else:
+                trans_out = prhmr_vid_output_w_kpts['pred_smpl_params_incam']['transl'][0].cpu().float().numpy()
 
             # Collect camera-space SMPL-X outputs for this track.
             hps_results = {
                 'rotmat': rotmat.cpu().float().numpy(),
                 'pose': smplx_pose_aa.cpu().numpy(),
                 'shape': betas_out,
-                'trans': prhmr_vid_output_w_kpts['pred_smpl_params_incam']['transl'][0].cpu().float().numpy(),
+                'trans': trans_out,
                 'contact': contact_label[0].cpu().numpy(),
                 'static_conf_logits': prhmr_vid_output['model_output']['static_conf_logits'][0].cpu().numpy(),
             }
