@@ -155,6 +155,10 @@ class PromptHMR_Video():
 
             betas_out = prhmr_vid_output['pred_smpl_params_incam']['betas'][0].cpu().float().numpy()
 
+
+            # Ablation: use per-frame image-model translations instead of video-head translations.
+            # trans_from_img_model = tracks[k]['smplx_transl'].cpu().float().numpy()
+
             # Collect camera-space SMPL-X outputs for this track.
             hps_results = {
                 'rotmat': rotmat.cpu().float().numpy(),

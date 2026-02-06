@@ -24,6 +24,30 @@ from submodules.smplx import smplx
 
 import torch
 
+
+def _to_numpy_array(x):
+    if x is None:
+        return None
+    if hasattr(x, "detach"):
+        return x.detach().cpu().numpy()
+    return np.asarray(x)
+
+
+def _save_stage_smplx(results, out_dir: Path, stage_key: str):
+    out_dir.mkdir(parents=True, exist_ok=True)
+    for track_id, person in sorted(results.get("people", {}).items()):
+        frames = _to_numpy_array(person.get("frames"))
+        smplx_data = person.get(stage_key)
+        if frames is None or smplx_data is None:
+            continue
+
+        save_dict = {"frames": frames.astype(np.int32)}
+        for key in ("pose", "shape", "trans", "rotmat", "contact", "static_conf_logits"):
+            if key in smplx_data and smplx_data[key] is not None:
+                save_dict[key] = _to_numpy_array(smplx_data[key])
+
+        np.savez(out_dir / f"track_{track_id}.npz", **save_dict)
+
 def _list_image_frames(image_dir: str):
     exts = ("*.jpg", "*.jpeg", "*.png")
     frame_paths = []
@@ -240,10 +264,20 @@ def main(scene_dir: str, static_camera: bool = False):
     if not pipeline.results['has_hps_cam']:
         print("Running human mesh estimation...")
         pipeline.hps_estimation()
+        _save_stage_smplx(
+            pipeline.results,
+            Path(scene_dir) / "misc" / "prompthmr" / "camera_smplx",
+            "smplx_cam",
+        )
 
     if not pipeline.results['has_hps_world']:
         print("Running world coordinates estimation...")
         pipeline.world_hps_estimation()
+        _save_stage_smplx(
+            pipeline.results,
+            Path(scene_dir) / "misc" / "prompthmr" / "world_smplx",
+            "smplx_world",
+        )
 
     _to_numpy(pipeline.results)
 
