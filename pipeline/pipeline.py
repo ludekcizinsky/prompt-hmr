@@ -23,10 +23,12 @@ from smplcodec import SMPLCodec
 
 
 class Pipeline:
-    def __init__(self, static_cam=False):
+    def __init__(self, static_cam=None):
         self.images = None
         self.cfg = OmegaConf.load("pipeline/config.yaml")
-        self.cfg.static_cam = static_cam
+        # Respect config default unless caller explicitly overrides.
+        if static_cam is not None:
+            self.cfg.static_cam = static_cam
         
         checkpoint_dir = PRETRAIN_ROOT
         self.data_dict = {

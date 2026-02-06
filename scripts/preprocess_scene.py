@@ -1,6 +1,7 @@
 import os
 import sys
 from pathlib import Path
+from typing import Optional
 
 import cv2
 import numpy as np
@@ -208,7 +209,7 @@ def _pad_or_truncate(vec: torch.Tensor, target_dim: int) -> torch.Tensor:
     return torch.cat([vec, pad], dim=-1)
 
 
-def main(scene_dir: str, static_camera: bool = False):
+def main(scene_dir: str, static_camera: Optional[bool] = None):
     scene_dir = os.path.abspath(scene_dir)
     images_root = os.path.join(scene_dir, "images")
     if not os.path.isdir(images_root):

@@ -12,6 +12,7 @@ depth_method: metric3d_vit_large
 use_depth: false
 max_height: 896
 calib_method: ba
+static_cam: true
 hand_pose: false
 smooth_cam: true
 use_spec_calib: true
