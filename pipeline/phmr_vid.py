@@ -25,7 +25,7 @@ from prompt_hmr.utils.rotation_conversions import axis_angle_to_matrix
 
 def load_video_head():
     phmr_vid_cfg = OmegaConf.load(f'{PRETRAIN_ROOT}/phmr_vid/prhmr_release_002.yaml')
-    phmr_vid_ckpt = f'{PRETRAIN_ROOT}/phmr_vid/phmr_b2.ckpt'
+    phmr_vid_ckpt = f'{PRETRAIN_ROOT}/phmr_vid/phmr_b1b2.ckpt'
     vid_head = DemoPL(
         pipeline=phmr_vid_cfg.model.pipeline,
         smplx_path=f'{BODY_MODELS_ROOT}/smplx/SMPLX_NEUTRAL.npz',
