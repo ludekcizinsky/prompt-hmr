@@ -44,7 +44,15 @@ class PromptHMR_Video():
         self.vid_head = load_video_head()
     
     @torch.no_grad()
-    def run(self, images, results, mask_prompt=True, debug_dir=None):
+    def run(
+        self,
+        images,
+        results,
+        mask_prompt=True,
+        interaction_prompt=True,
+        use_mean_hands=True,
+        debug_dir=None,
+    ):
         # Tracks contain per-person bboxes/masks/frames from the tracking stage.
         tracks = results['people']
         # Camera intrinsics (focal length + principal point).
@@ -79,7 +87,12 @@ class PromptHMR_Video():
         # Image model: run per-frame estimates and cache per-track outputs.
         for batch in dataloader:
             with autocast('cuda'):
-                output = self.model(batch, mask_prompt=mask_prompt)
+                output = self.model(
+                    batch,
+                    mask_prompt=mask_prompt,
+                    interaction_prompt=interaction_prompt,
+                    use_mean_hands=use_mean_hands,
+                )
             
             for bid in range(len(batch)):
                 track_id = batch[bid]['track_ids']

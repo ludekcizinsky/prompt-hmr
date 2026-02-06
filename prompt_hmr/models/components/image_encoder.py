@@ -103,12 +103,12 @@ class Dinov2Backbone(nn.Module):
             vit = torch.hub.load('facebookresearch/dinov2', name, pretrained=pretrained)
         elif name == 'dinov2_vitl14':
             vit = vit_large(patch_size=14, img_size=518, init_values=1.0, block_chunks=0)
-            ckpt = os.path.join(DATA_ROOT, 'dinov2_vitl14_pretrain.pth')
+            ckpt = os.path.join(DATA_ROOT, 'pretrain', 'dinov2_vitl14_pretrain.pth')
             if os.path.exists(ckpt):
                 ckpt = torch.load(ckpt, weights_only=True)
                 _ = vit.load_state_dict(ckpt, strict=True)
             else:
-                print('Not using DINOv2 weight')
+                raise ValueError(f"Pretrained checkpoint for DINOv2-ViT-L/14 not found at {ckpt}")
         else:
             raise Exception('Backbone not implemented.')
 

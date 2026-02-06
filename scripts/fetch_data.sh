@@ -16,6 +16,8 @@ gdown --fuzzy -O "${DATA_ROOT}/pretrain/camcalib_sa_biased_l2.ckpt" https://driv
 gdown --fuzzy -O "${DATA_ROOT}/pretrain/droidcalib.pth" https://drive.google.com/file/d/14hgb59Jk2Pvfiqy4nntE7dUrcKgFmKSj/view?usp=sharing
 gdown --fuzzy -O "${DATA_ROOT}/pretrain/vitpose-h-coco_25.pth" https://drive.google.com/file/d/1ZprPoNXe_f9a9flr0RhS3XCJBfqhFSeE/view?usp=sharing
 wget -P "${DATA_ROOT}/pretrain/" https://dl.fbaipublicfiles.com/segment_anything/sam_vit_h_4b8939.pth
+wget -P "${DATA_ROOT}/pretrain/" https://dl.fbaipublicfiles.com/dinov2/dinov2_vitl14/dinov2_vitl14_pretrain.pth
+
 
 # PHMR-Vid checkpoint (Google Drive file)
 mkdir -p "${DATA_ROOT}/pretrain/phmr_vid"

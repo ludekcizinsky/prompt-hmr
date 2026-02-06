@@ -112,9 +112,18 @@ class Pipeline:
             mask_prompt = True
         else:
             mask_prompt = False
+        interaction_prompt = bool(self.cfg.get("enable_interaction_prompt", True))
+        use_mean_hands = bool(self.cfg.get("use_mean_hands", True))
 
         phmr = PromptHMR_Video()
-        self.results = phmr.run(self.images, self.results, mask_prompt, debug_dir=self.cfg.seq_folder)
+        self.results = phmr.run(
+            self.images,
+            self.results,
+            mask_prompt=mask_prompt,
+            interaction_prompt=interaction_prompt,
+            use_mean_hands=use_mean_hands,
+            debug_dir=self.cfg.seq_folder,
+        )
         self.results['contact_joint_ids'] = [7, 10, 8, 11, 20, 21]
         self.results['has_hps_cam'] = True
     

@@ -229,6 +229,8 @@ def main(scene_dir: str, static_camera: bool = False):
     pipeline.seq_folder = scene_dir
     pipeline.cfg.seq_folder = scene_dir
     pipeline.cfg.img_folder = image_dir
+    # Use PromptHMR mean-hand convention for hand pose defaults.
+    pipeline.cfg.use_mean_hands = True
     pipeline.fps = 30
     pipeline.results = _init_results()
 
